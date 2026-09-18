@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { generateSecret, verify } = require('otplib');
 const db = require('./db');
-const ngrok = require("@ngrok/ngrok");
+// const ngrok = require("@ngrok/ngrok");
 require('dotenv').config();
 
 const app = express();
@@ -11,16 +11,21 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-async function forwardToApp() {
-  const forwarder = await ngrok.forward({
-    addr: "localhost:3000",
-    authtoken_from_env: true,
-    domain: "polygraph-spherical-ecosphere.ngrok-free.dev",
-  });
-  console.log(`Available at: ${forwarder.url()}`);
-}
+// async function forwardToApp() {
+//   const forwarder = await ngrok.forward({
+//     addr: "localhost:3000",
+//     authtoken_from_env: true,
+//     domain: "polygraph-spherical-ecosphere.ngrok-free.dev",
+//   });
+//   console.log(`Available at: ${forwarder.url()}`);
+// }
 
-forwardToApp();
+// forwardToApp();
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Servidor de Control de Acceso corriendo en http://localhost:${PORT}`);
+});
 
 // Endpoint de prueba de conexión a Supabase
 app.get('/test-db', async (req, res) => {
@@ -108,7 +113,3 @@ app.get('/api/registros-acceso', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor de Control de Acceso corriendo en http://localhost:${PORT}`);
-});
