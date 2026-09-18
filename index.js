@@ -27,6 +27,9 @@ app.listen(PORT, () => {
   console.log(`Servidor de Control de Acceso corriendo en http://localhost:${PORT}`);
 });
 
+console.log("DATABASE_URL detectada:", process.env.DATABASE_URL ? "SÍ" : "NO");
+console.log("SUPABASE_URL detectada:", process.env.SUPABASE_URL ? "SÍ" : "NO");
+
 // Endpoint de prueba de conexión a Supabase
 app.get('/test-db', async (req, res) => {
   try {
