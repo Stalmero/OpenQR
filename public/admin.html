@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard de Acceso - CUCEI</title>
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+
+  <div class="header">
+    <h1>Bitácora de Accesos CUCEI</h1>
+    <div class="live-badge">
+      <div class="pulse-dot"></div>
+      EN VIVO
+    </div>
+  </div>
+
+  <!-- Métricas Rápidas -->
+  <div class="stats-container">
+    <div class="stat-card">
+      <h3>Total de Lecturas</h3>
+      <div class="number" id="stat-total">0</div>
+    </div>
+    <div class="stat-card">
+      <h3>Accesos Permitidos</h3>
+      <div class="number" style="color: var(--success-text)" id="stat-permitidos">0</div>
+    </div>
+    <div class="stat-card">
+      <h3>Accesos Denegados</h3>
+      <div class="number" style="color: var(--danger-text)" id="stat-denegados">0</div>
+    </div>
+  </div>
+
+  <!-- Tabla de Registros -->
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha / Hora</th>
+          <th>Usuario / Alumno</th>
+          <th>Código</th>
+          <th>Estatus</th>
+          <th>Detalles</th>
+        </tr>
+      </thead>
+      <tbody id="registros-body">
+        <tr>
+          <td colspan="5" style="text-align: center; color: var(--text-muted);">Cargando registros...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    const registrosBody = document.getElementById('registros-body');
+    const statTotal = document.getElementById('stat-total');
+    const statPermitidos = document.getElementById('stat-permitidos');
+    const statDenegados = document.getElementById('stat-denegados');
+
+    async function cargarRegistros() {
+      try {
+        const response = await fetch('/api/registros-acceso');
+        if (!response.ok) return;
+
+        const data = await response.json();
+
+        // Calcular estadísticas
+        const total = data.length;
+        const permitidos = data.filter(r => r.estatus === 'PERMITIDO').length;
+        const denegados = data.filter(r => r.estatus === 'DENEGADO').length;
+
+        statTotal.innerText = total;
+        statPermitidos.innerText = permitidos;
+        statDenegados.innerText = denegados;
+
+        if (data.length === 0) {
+          registrosBody.innerHTML = `
+            <tr>
+              <td colspan="5" style="text-align: center; color: var(--text-muted);">Sin registros de acceso aún</td>
+            </tr>`;
+          return;
+        }
+
+        // Renderizar filas de la tabla
+        registrosBody.innerHTML = data.map(registro => {
+          const fecha = new Date(registro.fecha).toLocaleString('es-MX', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          });
+
+          const esPermitido = registro.estatus === 'PERMITIDO';
+          const badgeClass = esPermitido ? 'badge-permitido' : 'badge-denegado';
+
+          return `
+            <tr>
+              <td>${fecha}</td>
+              <td><strong>${registro.usuario_nombre || 'Desconocido'}</strong></td>
+              <td>${registro.codigo || 'N/A'}</td>
+              <td><span class="badge ${badgeClass}">${registro.estatus}</span></td>
+              <td style="color: var(--text-muted);">${registro.detalles || ''}</td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (err) {
+        console.error('Error al actualizar la bitácora:', err);
+      }
+    }
+
+    // Cargar inmediatamente y actualizar cada 2 segundos
+    cargarRegistros();
+    setInterval(cargarRegistros, 2000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso CUCEI - Código QR</title>
+  <!-- Script confiable para dibujar QR en HTML Canvas -->
+  <script src="https://cdn.jsdelivr.net/npm/kjua@0.9.0/dist/kjua.min.js"></script>
+  <!-- Enlace al Web App Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+  <div class="card">
+    <h2>Control de Acceso</h2>
+    <p>Muestra este código en el lector de la entrada</p>
+    
+    <div id="qrcode"></div>
+    <div class="code-text" id="token-display">------</div>
+    
+    <div class="timer-container">
+      <div class="timer-bar" id="timer-bar"></div>
+    </div>
+  </div>
+
+  <script>
+    const USUARIO_ID = 1;
+    const SECRET_TOTP = 'KN63ABMMNNTXKFALLI4TAIF5ODZSBKMP';
+
+    const qrcodeContainer = document.getElementById('qrcode');
+    const tokenDisplay = document.getElementById('token-display');
+    const timerBar = document.getElementById('timer-bar');
+
+    function decodificarBase32(secret) {
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+      const normalizedSecret = secret.replace(/=+$/, '').toUpperCase();
+      let bits = '';
+
+      for (const character of normalizedSecret) {
+        const value = alphabet.indexOf(character);
+        if (value === -1) {
+          throw new Error('El secreto TOTP no es Base32 válido');
+        }
+        bits += value.toString(2).padStart(5, '0');
+      }
+
+      const bytes = new Uint8Array(Math.floor(bits.length / 8));
+      for (let index = 0; index < bytes.length; index++) {
+        bytes[index] = parseInt(bits.slice(index * 8, index * 8 + 8), 2);
+      }
+      return bytes;
+    }
+
+    async function generarTokenTOTP(secret) {
+      if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
+        throw new Error('Esta página necesita HTTPS para generar el código en el teléfono.');
+      }
+
+      const counter = Math.floor(Date.now() / 1000 / 30);
+      const counterBytes = new ArrayBuffer(8);
+      const counterView = new DataView(counterBytes);
+      counterView.setUint32(4, counter);
+
+      const key = await crypto.subtle.importKey(
+        'raw',
+        decodificarBase32(secret),
+        { name: 'HMAC', hash: 'SHA-1' },
+        false,
+        ['sign']
+      );
+      const hash = new Uint8Array(await crypto.subtle.sign('HMAC', key, counterBytes));
+      const offset = hash[hash.length - 1] & 0x0f;
+      const binaryCode = ((hash[offset] & 0x7f) << 24)
+        | (hash[offset + 1] << 16)
+        | (hash[offset + 2] << 8)
+        | hash[offset + 3];
+
+      return String(binaryCode % 1000000).padStart(6, '0');
+    }
+
+    async function generarQR() {
+      try {
+        // 1. Generar token TOTP de 6 dígitos con otplib
+        const token = await generarTokenTOTP(SECRET_TOTP);
+        
+        // 2. Estructurar payload en JSON
+        const payload = JSON.stringify({
+          usuario_id: USUARIO_ID,
+          token: token
+        });
+
+        // 3. Generar el elemento canvas del QR mediante kjua
+        const qrEl = kjua({
+          text: payload,
+          size: 200,
+          fill: '#0f172a',
+          back: '#ffffff',
+          rounded: 10
+        });
+
+        qrcodeContainer.innerHTML = "";
+        qrcodeContainer.appendChild(qrEl);
+        tokenDisplay.innerText = token;
+      } catch (err) {
+        console.error("Error al generar el QR:", err);
+        qrcodeContainer.innerHTML = '<p class="qr-error">' + err.message + '</p>';
+        tokenDisplay.innerText = '------';
+      }
+    }
+
+    function actualizarTemporizador() {
+      const epoch = Math.floor(Date.now() / 1000);
+      const segundosRestantes = 30 - (epoch % 30);
+      const porcentaje = (segundosRestantes / 30) * 100;
+      
+      timerBar.style.width = porcentaje + '%';
+
+      if (segundosRestantes === 30 || tokenDisplay.innerText === '------') {
+        generarQR();
+      }
+    }
+
+    setInterval(actualizarTemporizador, 1000);
+    actualizarTemporizador();
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+            .then((reg) => console.log('Service Worker registrado correctamente:', reg.scope))
+            .catch((err) => console.error('Error al registrar Service Worker:', err));
+        });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lector de acceso</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #64748b;
+      --line: #dbe3ed;
+      --blue: #2563eb;
+      --green: #15803d;
+      --red: #b91c1c;
+      --surface: #ffffff;
+      --background: #eef3f8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: var(--ink);
+      background: linear-gradient(135deg, #e8f0ff, var(--background));
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+
+    .reader {
+      width: min(100%, 480px);
+      padding: 28px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 16px 40px rgba(23, 32, 51, 0.12);
+    }
+
+    h1 { margin: 0 0 8px; font-size: 1.55rem; }
+    .intro { margin: 0 0 22px; color: var(--muted); }
+
+    #reader {
+      overflow: hidden;
+      min-height: 280px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    #reader video { border-radius: 10px; }
+
+    .status {
+      min-height: 52px;
+      display: grid;
+      place-items: center;
+      margin-top: 18px;
+      padding: 12px;
+      border-radius: 8px;
+      color: var(--muted);
+      background: #f8fafc;
+      text-align: center;
+    }
+
+    .status.success { color: var(--green); background: #ecfdf3; }
+    .status.error { color: var(--red); background: #fef2f2; }
+    .status.loading { color: var(--blue); background: #eff6ff; }
+
+    button {
+      width: 100%;
+      margin-top: 14px;
+      padding: 11px 16px;
+      border: 0;
+      border-radius: 8px;
+      color: white;
+      background: var(--blue);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+    }
+
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <main class="reader">
+    <h1>Lector de Control de Acceso</h1>
+    <p class="intro">Apunta la cámara al código QR del usuario.</p>
+
+    <div id="reader"></div>
+    <div id="status" class="status" role="status" aria-live="polite">
+      Solicita permiso para usar la cámara.
+    </div>
+    <button id="restart" type="button" hidden>Escanear otro código</button>
+  </main>
+
+  <script>
+    const statusElement = document.getElementById('status');
+    const restartButton = document.getElementById('restart');
+    let scanner;
+    let validating = false;
+
+    function setStatus(message, type = '') {
+      statusElement.textContent = message;
+      statusElement.className = `status ${type}`;
+    }
+
+    function mostrarResultado(data) {
+      if (data.valido) {
+        setStatus(data.mensaje || 'Acceso permitido', 'success');
+      } else {
+        setStatus(data.mensaje || 'Acceso denegado', 'error');
+      }
+    }
+
+    async function validarCodigo(decodedText) {
+      if (validating) return;
+      validating = true;
+      setStatus('Validando código...', 'loading');
+
+      try {
+        const payload = JSON.parse(decodedText);
+        if (!payload.usuario_id || !/^\d{6}$/.test(String(payload.token))) {
+          throw new Error('El QR no contiene un código de acceso válido');
+        }
+
+        const response = await fetch('/api/validar-qr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            usuario_id: payload.usuario_id,
+            token: String(payload.token)
+          })
+        });
+        const data = await response.json();
+
+        mostrarResultado(data);
+        try {
+          await scanner.clear();
+        } catch (clearError) {
+          console.warn('No se pudo detener la cámara:', clearError);
+        }
+        restartButton.hidden = false;
+      } catch (error) {
+        setStatus(error.message || 'No se pudo validar el código', 'error');
+        validating = false;
+      }
+    }
+
+    async function iniciarScanner() {
+      restartButton.hidden = true;
+      validating = false;
+      setStatus('Solicita permiso para usar la cámara.');
+      scanner = new Html5Qrcode('reader');
+
+      try {
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          validarCodigo,
+          () => {}
+        );
+        setStatus('Cámara activa. Enfoca el código QR.');
+      } catch (error) {
+        setStatus('No se pudo acceder a la cámara. Usa localhost o HTTPS y revisa los permisos.', 'error');
+      }
+    }
+
+    restartButton.addEventListener('click', iniciarScanner);
+    iniciarScanner();
+  </script>
+</body>
+</html>
