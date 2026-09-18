@@ -1,4 +1,4 @@
-require('dotenv').config(); // <-- Debe ir en la línea 1
+require('dotenv').config();
 const { Pool } = require('pg');
 
 // Imprime en consola para verificar que la variable se lea correctamente
