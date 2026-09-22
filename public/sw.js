@@ -2,7 +2,10 @@ const CACHE_NAME = 'cucei-acceso-v1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  'https://unpkg.com/otplib@12.0.1/otplib-browser.js',
+  '/styles.css',
+  '/manifest.json',
+  '/icon-192.png',
+  '/icon-512.png',
   'https://cdn.jsdelivr.net/npm/kjua@0.9.0/dist/kjua.min.js'
 ];
 

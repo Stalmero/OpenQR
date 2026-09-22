@@ -30,78 +30,19 @@
 
   <script>
     const USUARIO_ID = 1;
-    const SECRET_TOTP = 'KN63ABMMNNTXKFALLI4TAIF5ODZSBKMP';
 
     const qrcodeContainer = document.getElementById('qrcode');
     const tokenDisplay = document.getElementById('token-display');
     const timerBar = document.getElementById('timer-bar');
 
-    function decodificarBase32(secret) {
-      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-      const normalizedSecret = secret.replace(/=+$/, '').toUpperCase();
-      let bits = '';
-
-      for (const character of normalizedSecret) {
-        const value = alphabet.indexOf(character);
-        if (value === -1) {
-          throw new Error('El secreto TOTP no es Base32 válido');
-        }
-        bits += value.toString(2).padStart(5, '0');
-      }
-
-      const bytes = new Uint8Array(Math.floor(bits.length / 8));
-      for (let index = 0; index < bytes.length; index++) {
-        bytes[index] = parseInt(bits.slice(index * 8, index * 8 + 8), 2);
-      }
-      return bytes;
-    }
-
-    async function generarTokenTOTP(secret) {
-      if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
-        throw new Error('Esta página necesita HTTPS para generar el código en el teléfono.');
-      }
-
-      const counter = Math.floor(Date.now() / 1000 / 30);
-      const counterBytes = new ArrayBuffer(8);
-      const counterView = new DataView(counterBytes);
-      counterView.setUint32(4, counter);
-
-      const key = await crypto.subtle.importKey(
-        'raw',
-        decodificarBase32(secret),
-        { name: 'HMAC', hash: 'SHA-1' },
-        false,
-        ['sign']
-      );
-      const hash = new Uint8Array(await crypto.subtle.sign('HMAC', key, counterBytes));
-      const offset = hash[hash.length - 1] & 0x0f;
-      const binaryCode = ((hash[offset] & 0x7f) << 24)
-        | (hash[offset + 1] << 16)
-        | (hash[offset + 2] << 8)
-        | hash[offset + 3];
-
-      return String(binaryCode % 1000000).padStart(6, '0');
-    }
-
     async function generarQR() {
       try {
-        // 1. Generar token TOTP de 6 dígitos con otplib
-        const token = await generarTokenTOTP(SECRET_TOTP);
-        
-        // 2. Estructurar payload en JSON
-        const payload = JSON.stringify({
-          usuario_id: USUARIO_ID,
-          token: token
-        });
+        const response = await fetch(`/api/token-actual/${USUARIO_ID}`);
+        if (!response.ok) throw new Error('No se pudo obtener el token');
+        const { token } = await response.json();
 
-        // 3. Generar el elemento canvas del QR mediante kjua
-        const qrEl = kjua({
-          text: payload,
-          size: 200,
-          fill: '#0f172a',
-          back: '#ffffff',
-          rounded: 10
-        });
+        const payload = JSON.stringify({ usuario_id: USUARIO_ID, token });
+        const qrEl = kjua({ text: payload, size: 200, fill: '#0f172a', back: '#ffffff', rounded: 10 });
 
         qrcodeContainer.innerHTML = "";
         qrcodeContainer.appendChild(qrEl);
@@ -112,7 +53,7 @@
         tokenDisplay.innerText = '------';
       }
     }
-
+    
     function actualizarTemporizador() {
       const epoch = Math.floor(Date.now() / 1000);
       const segundosRestantes = 30 - (epoch % 30);
