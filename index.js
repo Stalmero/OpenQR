@@ -1,11 +1,17 @@
 const express = require('express');
 const cors = require('cors');
-const { generateSecret, verify } = require('otplib');
+// const { generateSecret, verify } = require('otplib');
+const { generateSecret, verify, generate } = require('otplib');
 const db = require('./db');
 // const ngrok = require("@ngrok/ngrok");
 require('dotenv').config();
 
 const app = express();
+const DEVICE_SECRET = process.env.DEVICE_SECRET;
+
+let puertaPendiente = false;
+let puertaTimestamp = 0;
+const VENTANA_VALIDEZ_MS = 8000; // si el ESP32 no la recoge en 8s, se descarta
 
 app.use(cors());
 app.use(express.json());
@@ -83,6 +89,8 @@ app.post('/api/validar-qr', async (req, res) => {
     );
 
     if (isValid) {
+      puertaPendiente = true;
+      puertaTimestamp = Date.now();
       return res.json({ valido: true, mensaje: `Bienvenido, ${nombre}` });
     } else {
       return res.status(400).json({ valido: false, mensaje: 'Código QR expirado o inválido' });
@@ -116,3 +124,34 @@ app.get('/api/registros-acceso', async (req, res) => {
   }
 });
 
+// Devuelve el token TOTP vigente sin exponer el secreto
+app.get('/api/token-actual/:usuario_id', async (req, res) => {
+  const { usuario_id } = req.params;
+  try {
+    const userResult = await db.query(
+      'SELECT secret_totp FROM usuarios WHERE id = $1',
+      [usuario_id]
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    const token = await generate({ secret: userResult.rows[0].secret_totp });
+    res.json({ token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al generar el token' });
+  }
+});
+
+app.get('/api/device/status', (req, res) => {
+  if (req.query.secret !== DEVICE_SECRET) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  const vigente = puertaPendiente && (Date.now() - puertaTimestamp) < VENTANA_VALIDEZ_MS;
+  if (vigente) {
+    puertaPendiente = false; // se consume, solo se abre una vez por escaneo
+    return res.json({ abrir: true });
+  }
+  return res.json({ abrir: false });
+});
