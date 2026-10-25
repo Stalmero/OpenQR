@@ -137,18 +137,18 @@ app.post('/api/validar-qr', async (req, res) => {
       [usuario_id]
     );
 
-    const analisisInteligente = evaluarRiesgoAcceso(usuario_id, historialRes.rows);
+    // const analisisInteligente = evaluarRiesgoAcceso(usuario_id, historialRes.rows);
 
-    if (analisisInteligente.esAnomalia) {
-      await db.query(
-        'INSERT INTO registros_acceso (usuario_id, estatus, detalles) VALUES ($1, $2, $3)',
-        [usuario_id, 'DENEGADO', `Bloqueo IA: ${analisisInteligente.motivo} (Riesgo: ${analisisInteligente.puntajeRiesgo}%)`]
-      );
-      return res.status(403).json({
-        valido: false,
-        mensaje: `Acceso bloqueado por seguridad inteligente: ${analisisInteligente.motivo}`
-      });
-    }
+    // if (analisisInteligente.esAnomalia) {
+    //   await db.query(
+    //     'INSERT INTO registros_acceso (usuario_id, estatus, detalles) VALUES ($1, $2, $3)',
+    //     [usuario_id, 'DENEGADO', `Bloqueo IA: ${analisisInteligente.motivo} (Riesgo: ${analisisInteligente.puntajeRiesgo}%)`]
+    //   );
+    //   return res.status(403).json({
+    //     valido: false,
+    //     mensaje: `Acceso bloqueado por seguridad inteligente: ${analisisInteligente.motivo}`
+    //   });
+    // }
 
     // 5. ACCESO EXITOSO
     await db.query(
