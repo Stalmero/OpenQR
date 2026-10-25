@@ -51,51 +51,62 @@ app.post('/api/generar-secreto', async (req, res) => {
 });
 
 // --- MOTOR INTELIGENTE (Sistemas Inteligentes) ---
-function evaluarRiesgoAcceso(usuarioId, historialIntentosRecientes) {
+function evaluarRiesgoAcceso(usuarioId, historialIntentosRecientes, rolUsuario = 'empleado') {
     let puntajeRiesgo = 0;
     const ahora = new Date();
     const horaActual = ahora.getHours();
 
-    // Regla 1: Control de horario atípico (Madrugada: 00:00 a 05:00 hrs)
-    if (horaActual >= 0 && horaActual < 5) {
-        puntajeRiesgo += 40; 
+    // 1. Excepción por Rol: Personal nocturno o admins no se penalizan por horario
+    const esTurnoNocturno = rolUsuario === 'nocturno' || rolUsuario === 'admin';
+    if ((horaActual >= 0 && horaActual < 5) && !esTurnoNocturno) {
+        puntajeRiesgo += 25; // Reducido de 40 a 25 para ser más flexible
     }
 
-    // Regla 2: Intentos fallidos previos en ventana corta (Anti-Brute Force)
+    // 2. Control de fallos con margen de tolerancia (exige al menos 3 errores seguidos)
     const fallosRecientes = historialIntentosRecientes.filter(i => i.estatus === 'DENEGADO').length;
-    if (fallosRecientes >= 2) {
-        puntajeRiesgo += 35 * fallosRecientes; 
+    if (fallosRecientes >= 3) {
+        puntajeRiesgo += 20 * (fallosRecientes - 2); 
     }
 
-    // Regla 3: Frecuencia de acceso anómala (doble marcaje en menos de 10 segundos)
+    // 3. Frecuencia anómala con "Ventana de Gracia" para errores de cámara
     if (historialIntentosRecientes.length > 0) {
-        const ultimoAcceso = new Date(historialIntentosRecientes[0].fecha);
+        const ultimoIntento = historialIntentosRecientes[0];
+        const ultimoAcceso = new Date(ultimoIntento.fecha);
         const segundosDiferencia = (ahora - ultimoAcceso) / 1000;
-        if (segundosDiferencia < 10) {
-            puntajeRiesgo += 50; // Posible reenvío rápido o clonación
+        
+        // Si el intento anterior fue DENEGADO, se asume error de lectura de cámara (no se penaliza severamente)
+        // Si el intento anterior fue PERMITIDO y reintenta en < 5s, sí se sospecha de reenvío
+        if (segundosDiferencia < 5 && ultimoIntento.estatus === 'PERMITIDO') {
+            puntajeRiesgo += 45; 
         }
     }
 
-    const esAnomalia = puntajeRiesgo >= 60;
+    // Umbral de bloqueo elevado a 75 para evitar falsos positivos en usuarios normales
+    const esAnomalia = puntajeRiesgo >= 75;
+
     return {
         puntajeRiesgo: Math.min(puntajeRiesgo, 100),
         esAnomalia,
-        motivo: esAnomalia ? "Acceso denegado por patrón de comportamiento anómalo o alto riesgo" : "Acceso normal"
+        motivo: esAnomalia ? "Acceso denegado por patrón de comportamiento anómalo" : "Acceso normal"
     };
 }
 
 // Endpoint para validar el token enviado desde el Escáner/Lector QR
 app.post('/api/validar-qr', async (req, res) => {
+  console.time("TiempoTotalValidacion");
   const { usuario_id, token } = req.body;
 
   try {
-    // 1. Obtener datos del usuario
+    // 1. Obtener datos del usuario (Midiendo latencia de Supabase)
+    console.time("ConsultaSupabaseUsuario");
     const userResult = await db.query(
       'SELECT secret_totp, nombre FROM usuarios WHERE id = $1',
       [usuario_id]
     );
+    console.timeEnd("ConsultaSupabaseUsuario");
 
     if (userResult.rows.length === 0) {
+      console.timeEnd("TiempoTotalValidacion");
       return res.status(404).json({ valido: false, mensaje: 'Usuario no encontrado' });
     }
 
@@ -105,10 +116,13 @@ app.post('/api/validar-qr', async (req, res) => {
     const { valid: isValid } = await verify({ token, secret: secret_totp });
     
     if (!isValid) {
+      console.time("RegistroBitacoraFallido");
       await db.query(
         'INSERT INTO registros_acceso (usuario_id, estatus, detalles) VALUES ($1, $2, $3)',
         [usuario_id, 'DENEGADO', 'Código expirado o inválido']
       );
+      console.timeEnd("RegistroBitacoraFallido");
+      console.timeEnd("TiempoTotalValidacion");
       return res.status(400).json({ valido: false, mensaje: 'Código QR expirado o inválido' });
     }
 
@@ -125,6 +139,7 @@ app.post('/api/validar-qr', async (req, res) => {
         'INSERT INTO registros_acceso (usuario_id, estatus, detalles) VALUES ($1, $2, $3)',
         [usuario_id, 'DENEGADO', 'Intento de reutilización de token (Replay Attack bloqueado)']
       );
+      console.timeEnd("TiempoTotalValidacion");
       return res.status(403).json({ 
         valido: false, 
         mensaje: 'Acceso denegado: El código QR ya fue utilizado en esta ventana temporal.' 
@@ -137,31 +152,37 @@ app.post('/api/validar-qr', async (req, res) => {
       [usuario_id]
     );
 
-    // const analisisInteligente = evaluarRiesgoAcceso(usuario_id, historialRes.rows);
+    const analisisInteligente = evaluarRiesgoAcceso(usuario_id, historialRes.rows);
 
-    // if (analisisInteligente.esAnomalia) {
-    //   await db.query(
-    //     'INSERT INTO registros_acceso (usuario_id, estatus, detalles) VALUES ($1, $2, $3)',
-    //     [usuario_id, 'DENEGADO', `Bloqueo IA: ${analisisInteligente.motivo} (Riesgo: ${analisisInteligente.puntajeRiesgo}%)`]
-    //   );
-    //   return res.status(403).json({
-    //     valido: false,
-    //     mensaje: `Acceso bloqueado por seguridad inteligente: ${analisisInteligente.motivo}`
-    //   });
-    // }
+    if (analisisInteligente.esAnomalia) {
+      await db.query(
+        'INSERT INTO registros_acceso (usuario_id, estatus, detalles) VALUES ($1, $2, $3)',
+        [usuario_id, 'DENEGADO', `Bloqueo IA: ${analisisInteligente.motivo} (Riesgo: ${analisisInteligente.puntajeRiesgo}%)`]
+      );
+      console.timeEnd("TiempoTotalValidacion");
+      return res.status(403).json({
+        valido: false,
+        mensaje: `Acceso bloqueado por seguridad inteligente: ${analisisInteligente.motivo}`
+      });
+    }
 
     // 5. ACCESO EXITOSO
+    console.time("RegistroBitacoraExitoso");
     await db.query(
       'INSERT INTO registros_acceso (usuario_id, estatus, detalles) VALUES ($1, $2, $3)',
       [usuario_id, 'PERMITIDO', `Acceso correcto por QR. Token usado: ${token}`]
     );
+    console.timeEnd("RegistroBitacoraExitoso");
 
     puertaPendiente = true;
     puertaTimestamp = Date.now();
+    
+    console.timeEnd("TiempoTotalValidacion");
     return res.json({ valido: true, mensaje: `Bienvenido, ${nombre}` });
 
   } catch (err) {
     console.error(err);
+    console.timeEnd("TiempoTotalValidacion");
     res.status(500).json({ error: 'Error interno del servidor al validar el acceso' });
   }
 });
