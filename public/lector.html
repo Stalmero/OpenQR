@@ -61,6 +61,7 @@
       color: var(--muted);
       background: #f8fafc;
       text-align: center;
+      font-weight: 500;
     }
 
     .status.success { color: var(--green); background: #ecfdf3; }
@@ -136,22 +137,32 @@
         const data = await response.json();
 
         mostrarResultado(data);
+        
         try {
           await scanner.clear();
         } catch (clearError) {
           console.warn('No se pudo detener la cámara:', clearError);
         }
-        restartButton.hidden = false;
+
+        // ESPERAR 5 SEGUNDOS Y REINICIAR AUTOMÁTICAMENTE
+        setTimeout(() => {
+          iniciarScanner();
+        }, 5000);
+
       } catch (error) {
         setStatus(error.message || 'No se pudo validar el código', 'error');
-        validating = false;
+        
+        // Si ocurre un error de lectura, también reiniciamos después de 3 segundos
+        setTimeout(() => {
+          iniciarScanner();
+        }, 3000);
       }
     }
 
     async function iniciarScanner() {
       restartButton.hidden = true;
       validating = false;
-      setStatus('Solicita permiso para usar la cámara.');
+      setStatus('Cámara activa. Enfoca el código QR.');
       scanner = new Html5Qrcode('reader');
 
       try {
@@ -161,12 +172,12 @@
           validarCodigo,
           () => {}
         );
-        setStatus('Cámara activa. Enfoca el código QR.');
       } catch (error) {
         setStatus('No se pudo acceder a la cámara. Usa localhost o HTTPS y revisa los permisos.', 'error');
       }
     }
 
+    // El botón se queda disponible por si acaso, pero ya no es necesario tocarlo
     restartButton.addEventListener('click', iniciarScanner);
     iniciarScanner();
   </script>
